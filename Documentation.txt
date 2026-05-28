@@ -1,0 +1,66 @@
+1. MAIN PROBLEMS OF THE ORIGINAL DESIGN
+
+The original ShopManager mixes too many responsibilities inside one MonoBehaviour. It handles UI references and button events, shop purchase rules, persistence through PlayerPrefs, audio playback, feedback texts, configuration values, and Unity lifecycle in the same class. This makes the system highly coupled to Unity and difficult to test. It also duplicates validation rules inside the different purchase methods and inside RefreshUI(), which makes the code harder to maintain and extend.
+
+2. RESPONSIBILITIES OF EACH LAYER
+
+Domain / Application
+This layer contains the shop state, configuration, DTOs, purchase status values, and the use cases. It contains the purchase rules for Bomb, Shield, and Double Coins, and also the use case that calculates the current shop status. This layer does not depend on MonoBehaviour, TextMeshProUGUI, Button, AudioSource, PlayerPrefs, Debug.Log, or any other Unity API.
+
+Infrastructure
+This layer contains the persistence implementation. I created IShopStorage as an abstraction and PlayerPrefsShopStorage as the concrete implementation. This isolates PlayerPrefs from the business logic.
+
+Presentation
+This layer contains the view contract, the presenter, the Unity audio player, and the MonoBehaviour view. The presenter coordinates the UI with the use cases, translates semantic purchase results into user feedback messages, refreshes the shop, and triggers audio only when the purchase succeeds. The ShopView only updates UI elements and forwards button clicks to the presenter.
+
+Bootstrap
+This layer acts as the manual composition root. ShopBootstrap creates the configuration, storage, use cases, presenter, and audio player, then wires them together and initializes the view. This satisfies the dependency injection requirement without using an external framework.
+
+3. EXPLANATION OF THE USE CASES
+
+BuyBombUseCase
+Loads the current player shop state, checks if the player has enough coins and if Bomb uses are below the maximum. If the purchase is valid, it subtracts coins, increases Bomb uses, saves the state, and returns a PurchaseResultDto with Purchased status. If the purchase is not valid, it returns the corresponding semantic failure status.
+
+BuyShieldUseCase
+Works like the Bomb use case, but applies the Shield rules. It checks enough coins and the Shield maximum uses, then updates the state only on success.
+
+BuyDoubleCoinsUseCase
+Loads the current player shop state and checks three rules: enough coins, required level reached, and the upgrade not being already owned. On success it subtracts coins, sets HasDoubleCoins to true, saves the state, and returns Purchased. On failure it returns NotEnoughCoins, RequiredLevelNotReached, or AlreadyOwned.
+
+GetShopStatusUseCase
+Loads the current state and calculates the shop status that the UI needs. It returns the current coins and whether Bomb, Shield, and Double Coins can be bought. The UI does not calculate these rules directly.
+
+4. HOW THE SOLUTION CAN BE TESTED WITHOUT UNITY
+
+Persistence is abstracted through IShopStorage. The application layer only knows that it can load and save PlayerShopState through this interface. It does not know if the data is stored in PlayerPrefs, JSON, a server, or any other system. The concrete implementation PlayerPrefsShopStorage is placed in the infrastructure layer, so PlayerPrefs is isolated from the domain and use cases. This makes the persistence mechanism replaceable.
+
+5. HOW THE SOLUTION CAN BE TESTED WITHOUT UNITY
+
+The core logic is testable without Unity because the use cases depend on plain C# classes and the IShopStorage abstraction, not on Unity APIs. For tests, I created FakeShopStorage, which simulates persistence in memory and tracks whether Save() was called. This allowed me to write Edit Mode NUnit tests that verify the purchase rules and persistence behavior without using MonoBehaviour, scenes, buttons, PlayerPrefs, or AudioSource.
+
+The tests cover:
+- Bomb purchase succeeds
+- Bomb purchase fails when the player does not have enough coins
+- Bomb purchase fails when maximum uses are reached
+- Shield purchase succeeds
+- Shield purchase fails when the player does not have enough coins
+- Shield purchase fails when maximum uses are reached
+- Double Coins purchase succeeds when the player has enough coins and level 5 or higher
+- Double Coins purchase fails when the player does not have enough coins
+- Double Coins purchase fails when the player level is lower than 5
+- Double Coins purchase fails when it is already owned
+
+The tests also verify that player coins change only after successful purchases and that Save() is called only when the purchase succeeds.
+
+6. WHY THIS SOLUTION IS BETTER THAN THE ORIGINAL
+
+My refactor is better because it separates responsibilities clearly. The business rules are no longer mixed with UI, PlayerPrefs, audio, and Unity lifecycle code. The use cases now orchestrate the application flow, the persistence can be replaced, and the UI only displays data and sends user actions. This makes the code easier to understand, easier to maintain, easier to extend with new shop items or rules, and much easier to test without Unity. Compared to the original ShopManager, the new design is cleaner, less coupled, and more aligned with the clean refactor requirements of the assignment.
+
+
+EXTRA NOTE: 
+
+to reset coins and be able to buy double coins you just need to paste these three lines in ShopsBootstrap in .Start():
+
+PlayerPrefs.DeleteAll();
+PlayerPrefs.SetInt("PlayerLevel", 5);
+PlayerPrefs.Save();
